@@ -17,7 +17,12 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext c) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: ThemeData.dark(useMaterial3: true).copyWith(
+          scaffoldBackgroundColor: Colors.black,
+          appBarTheme: const AppBarTheme(
+              backgroundColor: Colors.black,
+              surfaceTintColor: Colors.transparent),
+        ),
         home: const Home(),
       );
 }
@@ -32,13 +37,15 @@ class _HomeState extends State<Home> {
   int tab = 0;
   bool searching = false;
   bool loading = false;
+  String chip = 'Trending';
   final ctrl = TextEditingController();
   List<Video> videos = [];
+  static const chips = ['Trending', 'Music', 'Gaming', 'News', 'Live', 'Sports', 'Movies'];
 
   @override
   void initState() {
     super.initState();
-    load('trending');
+    load('trending today');
   }
 
   Future<void> load(String q) async {
@@ -51,15 +58,88 @@ class _HomeState extends State<Home> {
     if (mounted) setState(() => loading = false);
   }
 
+  void pick(String c) {
+    setState(() => chip = c);
+    load(c == 'Trending' ? 'trending today' : c);
+  }
+
+  void showCreate() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      builder: (_) => const Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(leading: Icon(Icons.video_call), title: Text('Create a Short')),
+        ListTile(leading: Icon(Icons.upload), title: Text('Upload a video')),
+        ListTile(leading: Icon(Icons.sensors), title: Text('Go live')),
+      ]),
+    );
+  }
+
+  Widget feed() => Column(children: [
+        SizedBox(
+          height: 48,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            itemCount: chips.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (c, i) => ChoiceChip(
+              label: Text(chips[i]),
+              selected: chip == chips[i],
+              selectedColor: Colors.white,
+              labelStyle: TextStyle(color: chip == chips[i] ? Colors.black : Colors.white),
+              onSelected: (_) => pick(chips[i]),
+            ),
+          ),
+        ),
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : videos.isEmpty
+                  ? const Center(child: Text('No videos. Check internet.'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 100),
+                      itemCount: videos.length,
+                      itemBuilder: (c, n) {
+                        final v = videos[n];
+                        return InkWell(
+                          onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Watch(v: v))),
+                          child: Column(children: [
+                            AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: CachedNetworkImage(
+                                imageUrl: v.thumbnails.mediumResUrl,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                memCacheWidth: 480,
+                                placeholder: (c, u) => Container(color: Colors.grey[900]),
+                              ),
+                            ),
+                            ListTile(
+                              leading: const CircleAvatar(child: Icon(Icons.person)),
+                              title: Text(v.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              subtitle: Text('${v.author} • ${v.engagement.viewCount} views'),
+                            ),
+                          ]),
+                        );
+                      },
+                    ),
+        ),
+      ]);
+
   @override
   Widget build(BuildContext c) => Scaffold(
+        extendBody: true,
         appBar: AppBar(
           title: searching
               ? TextField(
                   controller: ctrl,
                   autofocus: true,
                   decoration: const InputDecoration(hintText: 'Search YouTube', border: InputBorder.none),
-                  onSubmitted: (q) => load(q),
+                  onSubmitted: (q) {
+                    setState(() => chip = '');
+                    load(q);
+                  },
                 )
               : const Row(children: [
                   Icon(Icons.play_circle_fill, color: Colors.red, size: 30),
@@ -73,45 +153,33 @@ class _HomeState extends State<Home> {
             ),
           ],
         ),
-        body: loading
-            ? const Center(child: CircularProgressIndicator())
-            : videos.isEmpty
-                ? const Center(child: Text('No videos. Check internet.'))
-                : ListView.builder(
-                    itemCount: videos.length,
-                    itemBuilder: (c, n) {
-                      final v = videos[n];
-                      return InkWell(
-                        onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Watch(v: v))),
-                        child: Column(children: [
-                          AspectRatio(
-                            aspectRatio: 16 / 9,
-                            child: CachedNetworkImage(
-                              imageUrl: v.thumbnails.mediumResUrl,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              memCacheWidth: 480,
-                              placeholder: (c, u) => Container(color: Colors.grey[850]),
-                            ),
-                          ),
-                          ListTile(
-                            leading: const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text(v.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-                            subtitle: Text('${v.author} • ${v.engagement.viewCount} views'),
-                          ),
-                        ]),
-                      );
-                    },
-                  ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: tab,
-          onDestinationSelected: (v) => setState(() => tab = v),
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-            NavigationDestination(icon: Icon(Icons.explore), label: 'Shorts'),
-            NavigationDestination(icon: Icon(Icons.subscriptions), label: 'Subscriptions'),
-            NavigationDestination(icon: Icon(Icons.video_library), label: 'You'),
-          ],
+        body: tab == 0 ? feed() : const Center(child: Text('Coming soon')),
+        bottomNavigationBar: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: NavigationBar(
+              height: 64,
+              backgroundColor: const Color(0xFF1C1C1E),
+              indicatorColor: Colors.white24,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+              selectedIndex: tab,
+              onDestinationSelected: (i) {
+                if (i == 2) {
+                  showCreate();
+                } else {
+                  setState(() => tab = i);
+                }
+              },
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+                NavigationDestination(icon: Icon(Icons.explore), label: 'Shorts'),
+                NavigationDestination(icon: Icon(Icons.add_circle_outline, size: 34), label: 'Create'),
+                NavigationDestination(icon: Icon(Icons.subscriptions), label: 'Subscriptions'),
+                NavigationDestination(icon: Icon(Icons.video_library), label: 'You'),
+              ],
+            ),
+          ),
         ),
       );
 }
@@ -139,7 +207,6 @@ class _WatchState extends State<Watch> {
       final m = await yt.videos.streamsClient.getManifest(widget.v.id);
       final list = m.muxed.toList()
         ..sort((a, b) => a.videoResolution.height.compareTo(b.videoResolution.height));
-      // 360p+ is smooth on low-end phones
       final s = list.firstWhere((x) => x.videoResolution.height >= 360, orElse: () => list.last);
       await player.open(Media(s.url.toString()));
     } catch (e) {
