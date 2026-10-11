@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:media_kit_video/media_kit_video.dart' as mkv;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -193,7 +193,7 @@ class Watch extends StatefulWidget {
 
 class _WatchState extends State<Watch> {
   final player = Player();
-  late final controller = VideoController(player);
+  late final controller = mkv.VideoController(player);
   String? error;
 
   @override
@@ -224,7 +224,7 @@ class _WatchState extends State<Watch> {
   Widget build(BuildContext c) => Scaffold(
         body: SafeArea(
           child: Column(children: [
-            AspectRatio(aspectRatio: 16 / 9, child: Video(controller: controller)),
+            AspectRatio(aspectRatio: 16 / 9, child: mkv.Video(controller: controller)),
             if (error != null) Padding(padding: const EdgeInsets.all(12), child: Text(error!)),
             ListTile(
               title: Text(widget.v.title),
