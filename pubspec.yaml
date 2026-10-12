@@ -12,6 +12,9 @@ dependencies:
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5
   cached_network_image: ^3.3.1
+  flutter_cache_manager: ^3.3.1
+  speech_to_text: ">=6.6.0 <8.0.0"
+  shared_preferences: ^2.2.3
 dev_dependencies:
   flutter_launcher_icons: ^0.14.1
 flutter_launcher_icons:
