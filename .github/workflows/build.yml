@@ -19,6 +19,57 @@ jobs:
       - run: sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
       - run: sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application#' android/app/src/main/AndroidManifest.xml
       - run: sed -i 's#android:label="[^"]*"#android:label="YouTube"#' android/app/src/main/AndroidManifest.xml
+      - run: sed -i 's#<activity#<activity android:supportsPictureInPicture="true"#' android/app/src/main/AndroidManifest.xml
+      - name: Add PiP code
+        run: |
+          F=$(find android/app/src/main -name MainActivity.kt)
+          PKG=$(grep -m1 '^package' "$F")
+          cat > "$F" <<EOF
+          $PKG
+
+          import android.app.PictureInPictureParams
+          import android.content.res.Configuration
+          import android.os.Build
+          import android.util.Rational
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity : FlutterActivity() {
+              private var channel: MethodChannel? = null
+              private var autoPip = false
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "pip")
+                  channel!!.setMethodCallHandler { call, result ->
+                      when (call.method) {
+                          "enter" -> { enterPip(); result.success(true) }
+                          "auto" -> { autoPip = (call.arguments as? Boolean) ?: false; result.success(true) }
+                          else -> result.notImplemented()
+                      }
+                  }
+              }
+
+              private fun enterPip() {
+                  if (Build.VERSION.SDK_INT >= 26) {
+                      enterPictureInPictureMode(
+                          PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
+                      )
+                  }
+              }
+
+              override fun onUserLeaveHint() {
+                  super.onUserLeaveHint()
+                  if (autoPip) enterPip()
+              }
+
+              override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+                  super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+                  channel?.invokeMethod("pipChanged", isInPictureInPictureMode)
+              }
+          }
+          EOF
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
       - run: flutter build apk --release
