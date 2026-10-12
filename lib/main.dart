@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -10,6 +12,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 final yt = YoutubeExplode();
 late SharedPreferences prefs;
+
+// One shared player: keeps playing when you leave the video page.
+final player = Player();
+final videoController = mkv.VideoController(player);
+final ValueNotifier<Video?> nowPlaying = ValueNotifier(null);
+final ValueNotifier<int?> nowHeight = ValueNotifier(null);
+final ValueNotifier<bool> pipMode = ValueNotifier(false);
+const pipChannel = MethodChannel('pip');
+int watchCount = 0;
+
+Future<void> pip(String m, [dynamic a]) async {
+  try {
+    await pipChannel.invokeMethod(m, a);
+  } catch (_) {}
+}
 
 final Map<String, Future<StreamManifest>> manifests = {};
 Future<StreamManifest> manifestFor(VideoId id) => manifests.putIfAbsent(
@@ -52,6 +69,11 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   prefs = await SharedPreferences.getInstance();
+  pipChannel.setMethodCallHandler((call) async {
+    if (call.method == 'pipChanged') {
+      pipMode.value = call.arguments == true;
+    }
+  });
   runApp(const App());
 }
 
@@ -95,11 +117,19 @@ class Logo extends StatelessWidget {
 
 class VideoCard extends StatelessWidget {
   final Video v;
-  const VideoCard({super.key, required this.v});
+  final bool replace;
+  const VideoCard({super.key, required this.v, this.replace = false});
   @override
   Widget build(BuildContext c) => InkWell(
         onTapDown: (_) => prefetch(v),
-        onTap: () => Navigator.push(c, MaterialPageRoute(builder: (_) => Watch(v: v))),
+        onTap: () {
+          final r = MaterialPageRoute(builder: (_) => Watch(v: v));
+          if (replace) {
+            Navigator.pushReplacement(c, r);
+          } else {
+            Navigator.push(c, r);
+          }
+        },
         child: Column(children: [
           Stack(children: [
             AspectRatio(
@@ -130,6 +160,63 @@ class VideoCard extends StatelessWidget {
             trailing: const Icon(Icons.more_vert),
           ),
         ]),
+      );
+}
+
+class MiniPlayer extends StatelessWidget {
+  const MiniPlayer({super.key});
+  @override
+  Widget build(BuildContext c) => ValueListenableBuilder<Video?>(
+        valueListenable: nowPlaying,
+        builder: (c, v, _) {
+          if (v == null) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Material(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.push(
+                    c, MaterialPageRoute(builder: (_) => Watch(v: v))),
+                child: Row(children: [
+                  SizedBox(
+                    width: 90,
+                    height: 56,
+                    child: CachedNetworkImage(
+                      imageUrl: v.thumbnails.mediumResUrl,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 200,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(v.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13)),
+                  ),
+                  StreamBuilder<bool>(
+                    stream: player.stream.playing,
+                    initialData: player.state.playing,
+                    builder: (c, s) => IconButton(
+                      icon: Icon((s.data ?? false) ? Icons.pause : Icons.play_arrow),
+                      onPressed: () => player.playOrPause(),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      player.stop();
+                      nowPlaying.value = null;
+                      nowHeight.value = null;
+                    },
+                  ),
+                ]),
+              ),
+            ),
+          );
+        },
       );
 }
 
@@ -170,7 +257,7 @@ class _HomeState extends State<Home> {
           : RefreshIndicator(
               onRefresh: load,
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 100),
+                padding: const EdgeInsets.only(bottom: 160),
                 itemCount: videos.length,
                 itemBuilder: (c, n) => VideoCard(v: videos[n]),
               ),
@@ -204,25 +291,28 @@ class _HomeState extends State<Home> {
           ],
         ),
         body: bodyFor(),
-        bottomNavigationBar: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: NavigationBar(
-              height: 68,
-              backgroundColor: const Color(0xFF1C1C1E),
-              indicatorColor: Colors.white24,
-              selectedIndex: tab,
-              onDestinationSelected: (i) => setState(() => tab = i),
-              destinations: const [
-                NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-                NavigationDestination(icon: Icon(Icons.slow_motion_video), label: 'Shorts'),
-                NavigationDestination(icon: Icon(Icons.subscriptions_outlined), selectedIcon: Icon(Icons.subscriptions), label: 'Subscriptions'),
-                NavigationDestination(icon: Icon(Icons.video_library_outlined), selectedIcon: Icon(Icons.video_library), label: 'Library'),
-              ],
+        bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
+          const MiniPlayer(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: NavigationBar(
+                height: 68,
+                backgroundColor: const Color(0xFF1C1C1E),
+                indicatorColor: Colors.white24,
+                selectedIndex: tab,
+                onDestinationSelected: (i) => setState(() => tab = i),
+                destinations: const [
+                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
+                  NavigationDestination(icon: Icon(Icons.slow_motion_video), label: 'Shorts'),
+                  NavigationDestination(icon: Icon(Icons.subscriptions_outlined), selectedIcon: Icon(Icons.subscriptions), label: 'Subscriptions'),
+                  NavigationDestination(icon: Icon(Icons.video_library_outlined), selectedIcon: Icon(Icons.video_library), label: 'Library'),
+                ],
+              ),
             ),
           ),
-        ),
+        ]),
       );
 }
 
@@ -251,7 +341,7 @@ class LibraryTab extends StatelessWidget {
   const LibraryTab({super.key});
   @override
   Widget build(BuildContext c) => ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 100),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 160),
         children: [
           ListTile(
             leading: const Icon(Icons.history),
@@ -503,8 +593,6 @@ class Watch extends StatefulWidget {
 }
 
 class _WatchState extends State<Watch> {
-  final player = Player();
-  late final controller = mkv.VideoController(player);
   List<MuxedStreamInfo> streams = [];
   int? height;
   bool loadingInfo = true;
@@ -512,14 +600,18 @@ class _WatchState extends State<Watch> {
   String? error;
   List<Video> related = [];
   bool loadingRelated = true;
+  StreamSubscription? bufSub;
+  StreamSubscription? playSub;
 
   @override
   void initState() {
     super.initState();
-    addHistory(widget.v);
-    player.stream.buffering.listen((b) {
+    watchCount++;
+    bufSub = player.stream.buffering.listen((b) {
       if (mounted) setState(() => buffering = b);
     });
+    playSub = player.stream.playing.listen((p) => pip('auto', p));
+    pip('auto', player.state.playing);
     start();
     loadRelated();
   }
@@ -532,13 +624,21 @@ class _WatchState extends State<Watch> {
   }
 
   Future<void> start() async {
+    final same = nowPlaying.value?.id == widget.v.id;
     try {
       final m = await manifestFor(widget.v.id);
       streams = m.muxed.toList();
       if (streams.isEmpty) throw 'No playable stream';
-      final s = pick(prefs.getInt('quality') ?? 360);
-      height = s.videoResolution.height;
-      await player.open(Media(s.url.toString()));
+      if (same && nowHeight.value != null) {
+        height = nowHeight.value;
+      } else {
+        final s = pick(prefs.getInt('quality') ?? 360);
+        height = s.videoResolution.height;
+        nowHeight.value = height;
+        nowPlaying.value = widget.v;
+        addHistory(widget.v);
+        await player.open(Media(s.url.toString()));
+      }
     } catch (e) {
       manifests.remove(widget.v.id.value);
       if (mounted) setState(() => error = 'Cannot play: $e');
@@ -552,6 +652,7 @@ class _WatchState extends State<Watch> {
       height = s.videoResolution.height;
       loadingInfo = true;
     });
+    nowHeight.value = height;
     await player.open(Media(s.url.toString(), start: pos));
     if (mounted) setState(() => loadingInfo = false);
   }
@@ -591,65 +692,81 @@ class _WatchState extends State<Watch> {
 
   @override
   void dispose() {
-    player.dispose();
+    bufSub?.cancel();
+    playSub?.cancel();
+    watchCount--;
+    if (watchCount <= 0) pip('auto', false);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
-        body: SafeArea(
-          child: Column(children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Stack(fit: StackFit.expand, children: [
-                mkv.Video(controller: controller),
-                if (loadingInfo)
-                  CachedNetworkImage(
-                    imageUrl: widget.v.thumbnails.mediumResUrl,
-                    fit: BoxFit.cover,
+  Widget build(BuildContext c) => ValueListenableBuilder<bool>(
+        valueListenable: pipMode,
+        builder: (c, inPip, _) {
+          if (inPip) {
+            return Scaffold(body: mkv.Video(controller: videoController));
+          }
+          return Scaffold(
+            body: SafeArea(
+              child: Column(children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(fit: StackFit.expand, children: [
+                    mkv.Video(controller: videoController),
+                    if (loadingInfo)
+                      CachedNetworkImage(
+                        imageUrl: widget.v.thumbnails.mediumResUrl,
+                        fit: BoxFit.cover,
+                      ),
+                    if (loadingInfo || buffering)
+                      const Center(child: CircularProgressIndicator()),
+                  ]),
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(children: [
+                      Expanded(child: Text(error!)),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            error = null;
+                            loadingInfo = true;
+                          });
+                          start();
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ]),
                   ),
-                if (loadingInfo || buffering)
-                  const Center(child: CircularProgressIndicator()),
+                ListTile(
+                  title: Text(widget.v.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text('${widget.v.author} • ${widget.v.engagement.viewCount} views'),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(
+                      icon: const Icon(Icons.picture_in_picture_alt),
+                      onPressed: () => pip('enter'),
+                    ),
+                    if (streams.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: showQuality,
+                        icon: const Icon(Icons.settings, size: 18),
+                        label: Text('${height ?? ''}p'),
+                      ),
+                  ]),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: loadingRelated
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView.builder(
+                          itemCount: related.length,
+                          itemBuilder: (c, n) => VideoCard(v: related[n], replace: true),
+                        ),
+                ),
               ]),
             ),
-            if (error != null)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(children: [
-                  Expanded(child: Text(error!)),
-                  TextButton(
-                    onPressed: () {
-                      setState(() {
-                        error = null;
-                        loadingInfo = true;
-                      });
-                      start();
-                    },
-                    child: const Text('Retry'),
-                  ),
-                ]),
-              ),
-            ListTile(
-              title: Text(widget.v.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text('${widget.v.author} • ${widget.v.engagement.viewCount} views'),
-              trailing: streams.isEmpty
-                  ? null
-                  : TextButton.icon(
-                      onPressed: showQuality,
-                      icon: const Icon(Icons.settings, size: 18),
-                      label: Text('${height ?? ''}p'),
-                    ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: loadingRelated
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      itemCount: related.length,
-                      itemBuilder: (c, n) => VideoCard(v: related[n]),
-                    ),
-            ),
-          ]),
-        ),
+          );
+        },
       );
 }
