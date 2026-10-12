@@ -17,6 +17,7 @@ jobs:
           channel: stable
       - run: flutter create --platforms=android .
       - run: sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+      - run: sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application#' android/app/src/main/AndroidManifest.xml
       - run: sed -i 's#android:label="[^"]*"#android:label="YouTube"#' android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
