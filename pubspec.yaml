@@ -1,27 +1,19 @@
 name: youtube_clone
-description: Personal YouTube client
+description: Personal iOS-style YouTube client
 publish_to: none
 version: 1.0.0+1
+
 environment:
   sdk: ">=3.0.0 <4.0.0"
+
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.8
   youtube_explode_dart: ^2.3.0
   media_kit: ^1.1.11
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5
-  cached_network_image: ^3.3.1
-  flutter_cache_manager: ^3.3.1
-  speech_to_text: ">=6.6.0 <8.0.0"
-  shared_preferences: ^2.2.3
-dev_dependencies:
-  flutter_launcher_icons: ^0.14.1
-flutter_launcher_icons:
-  android: true
-  ios: false
-  image_path: "icon.png"
-  adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "icon_fg.png"
+
 flutter:
   uses-material-design: true
