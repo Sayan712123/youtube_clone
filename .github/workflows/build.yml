@@ -1,8 +1,13 @@
 name: Build APK
+
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,69 +16,27 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: flutter create --platforms=android .
-      - run: sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
-      - run: sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application#' android/app/src/main/AndroidManifest.xml
-      - run: sed -i 's#android:label="[^"]*"#android:label="YouTube"#' android/app/src/main/AndroidManifest.xml
-      - run: sed -i 's#<activity#<activity android:supportsPictureInPicture="true"#' android/app/src/main/AndroidManifest.xml
-      - name: Add PiP code
+          cache: true
+
+      - name: Create Android folder if missing
         run: |
-          F=$(find android/app/src/main -name MainActivity.kt)
-          PKG=$(grep -m1 '^package' "$F")
-          cat > "$F" <<EOF
-          $PKG
+          if [ ! -d android ]; then flutter create . --platforms=android --project-name youtube_clone; fi
 
-          import android.app.PictureInPictureParams
-          import android.content.res.Configuration
-          import android.os.Build
-          import android.util.Rational
-          import io.flutter.embedding.android.FlutterActivity
-          import io.flutter.embedding.engine.FlutterEngine
-          import io.flutter.plugin.common.MethodChannel
+      - name: Allow internet in release build
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' $M || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' $M
 
-          class MainActivity : FlutterActivity() {
-              private var channel: MethodChannel? = null
-              private var autoPip = false
-
-              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-                  super.configureFlutterEngine(flutterEngine)
-                  channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "pip")
-                  channel!!.setMethodCallHandler { call, result ->
-                      when (call.method) {
-                          "enter" -> { enterPip(); result.success(true) }
-                          "auto" -> { autoPip = (call.arguments as? Boolean) ?: false; result.success(true) }
-                          else -> result.notImplemented()
-                      }
-                  }
-              }
-
-              private fun enterPip() {
-                  if (Build.VERSION.SDK_INT >= 26) {
-                      enterPictureInPictureMode(
-                          PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-                      )
-                  }
-              }
-
-              override fun onUserLeaveHint() {
-                  super.onUserLeaveHint()
-                  if (autoPip) enterPip()
-              }
-
-              override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
-                  super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-                  channel?.invokeMethod("pipChanged", isInPictureInPictureMode)
-              }
-          }
-          EOF
       - run: flutter pub get
-      - run: dart run flutter_launcher_icons
-      - run: flutter build apk --release
-      - uses: actions/upload-artifact@v4
+      - run: flutter build apk --release --split-per-abi
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
         with:
-          name: app
-          path: build/app/outputs/flutter-apk/app-release.apk
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: build/app/outputs/flutter-apk/*-release.apk
